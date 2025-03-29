@@ -332,6 +332,7 @@ impl LegalGlobal {
                     | StorageClass::Private
                     | StorageClass::Workgroup
                     | StorageClass::AtomicCounter
+                    //| StorageClass::PhysicalStorageBuffer
             ),
             Self::TypeNonPointer => true,
 
@@ -343,6 +344,7 @@ impl LegalGlobal {
     fn legal_as_fn_ret_ty(&self) -> bool {
         #[allow(clippy::match_same_arms)]
         match *self {
+            //Self::TypePointer(storage_class) => storage_class == StorageClass::PhysicalStorageBuffer, // TODO: Check if correct
             Self::TypePointer(_) => false,
             Self::TypeNonPointer => true,
 

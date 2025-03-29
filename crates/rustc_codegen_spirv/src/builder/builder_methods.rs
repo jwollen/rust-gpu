@@ -360,11 +360,21 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     }
 
     fn zombie_convert_ptr_to_u(&self, def: Word) {
-        self.zombie(def, "cannot convert pointers to integers");
+        if !self
+            .builder
+            .has_capability(Capability::PhysicalStorageBufferAddresses)
+        {
+            self.zombie(def, "cannot convert pointers to integers without OpCapability PhysicalStorageBufferAddresses");
+        }
     }
 
     fn zombie_convert_u_to_ptr(&self, def: Word) {
-        self.zombie(def, "cannot convert integers to pointers");
+        if !self
+            .builder
+            .has_capability(Capability::PhysicalStorageBufferAddresses)
+        {
+            self.zombie(def, "cannot convert integers to pointers without OpCapability PhysicalStorageBufferAddresses");
+        }
     }
 
     fn zombie_ptr_equal(&self, def: Word, inst: &str) {
@@ -1463,13 +1473,17 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
         self.fatal("dynamic alloca not supported yet")
     }
 
-    fn load(&mut self, ty: Self::Type, ptr: Self::Value, _align: Align) -> Self::Value {
+    fn load(&mut self, ty: Self::Type, ptr: Self::Value, align: Align) -> Self::Value {
         let (ptr, access_ty) = self.adjust_pointer_for_typed_access(ptr, ty);
         let loaded_val = ptr.const_fold_load(self).unwrap_or_else(|| {
             self.emit()
                 .load(access_ty, None, ptr.def(self), None, empty())
                 .unwrap()
                 .with_type(access_ty)
+            // self.emit()
+            //     .load(access_ty, None, ptr.def(self), Some(rspirv::spirv::MemoryAccess::ALIGNED), std::iter::once(Operand::LiteralBit32(align.bytes() as _)))
+            //     .unwrap()
+            //     .with_type(access_ty)
         });
         self.bitcast(loaded_val, ty)
     }
@@ -1741,32 +1755,57 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
         if val.ty == dest_ty {
             val
         } else {
+            let (needs_cast, result_ty) = if let SpirvType::Integer(width, true) =
+                self.lookup_type(dest_ty)
+            {
+                let result_ty = SpirvType::Integer(width, false).def(rustc_span::DUMMY_SP, self);
+                (true, result_ty)
+            } else {
+                (false, dest_ty)
+            };
+
             let result = self
                 .emit()
-                .convert_ptr_to_u(dest_ty, None, val.def(self))
-                .unwrap()
-                .with_type(dest_ty);
-            self.zombie_convert_ptr_to_u(result.def(self));
-            result
+                .convert_ptr_to_u(result_ty, None, val.def(self))
+                .unwrap();
+            self.zombie_convert_ptr_to_u(result);
+
+            let result = if needs_cast {
+                self.emit().bitcast(dest_ty, None, result).unwrap()
+            } else {
+                result
+            };
+            result.with_type(dest_ty)
         }
     }
 
     fn inttoptr(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        match self.lookup_type(dest_ty) {
-            SpirvType::Pointer { .. } => (),
+        let result_ty = match self.lookup_type(dest_ty) {
+            SpirvType::Pointer { pointee, .. } => self
+                .type_ptr_with_storage_class_to(pointee, Some(StorageClass::PhysicalStorageBuffer)),
             other => self.fatal(format!(
                 "inttoptr called on non-pointer dest type: {other:?}"
             )),
-        }
-        if val.ty == dest_ty {
+        };
+        if val.ty == result_ty {
             val
         } else {
+            let op = if let SpirvType::Integer(width, true) = self.lookup_type(val.ty) {
+                let result_ty = SpirvType::Integer(width, false).def(rustc_span::DUMMY_SP, self);
+                self.emit().bitcast(result_ty, None, val.def(self)).unwrap()
+            } else {
+                val.def(self)
+            };
+
             let result = self
                 .emit()
-                .convert_u_to_ptr(dest_ty, None, val.def(self))
+                .convert_u_to_ptr(result_ty, None, op)
                 .unwrap()
-                .with_type(dest_ty);
+                .with_type(result_ty);
             self.zombie_convert_u_to_ptr(result.def(self));
+
+            //self.emit().bitcast(dest_ty, None, result).unwrap().with_type(dest_ty);
+
             result
         }
     }
@@ -2034,6 +2073,7 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
             SpirvType::Pointer { .. } => match op {
                 IntEQ => {
                     if self.emit().version().unwrap() > (1, 3) {
+                        // TODO: PhysicalStorageBuffer storage class needs to use int casts here too
                         self.emit()
                             .ptr_equal(b, None, lhs.def(self), rhs.def(self))
                             .inspect(|&result| {
@@ -2056,6 +2096,7 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                 }
                 IntNE => {
                     if self.emit().version().unwrap() > (1, 3) {
+                        // TODO: PhysicalStorageBuffer storage class needs to use int casts here too
                         self.emit()
                             .ptr_not_equal(b, None, lhs.def(self), rhs.def(self))
                             .inspect(|&result| {
