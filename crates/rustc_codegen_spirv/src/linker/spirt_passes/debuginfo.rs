@@ -116,8 +116,11 @@ impl Transformer for CustomDebuginfoToSpv<'_> {
                                 }
                                 _ => unreachable!(),
                             };
-                            current_file_line_col =
-                                Some((const_str(file), const_u32(line), const_u32(col)));
+                            current_file_line_col = Some((
+                                const_str(file.unwrap_value()),
+                                const_u32(line.unwrap_value()),
+                                const_u32(col.unwrap_value()),
+                            ));
                             insts_to_remove.push(inst);
                             continue;
                         }

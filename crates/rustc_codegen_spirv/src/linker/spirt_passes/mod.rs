@@ -14,8 +14,8 @@ use spirt::transform::InnerInPlaceTransform;
 use spirt::visit::{InnerVisit, Visitor};
 use spirt::{
     AttrSet, Const, Context, ControlNode, ControlNodeKind, ControlRegion, DataInstDef,
-    DataInstForm, DataInstFormDef, DataInstKind, DeclDef, EntityOrientedDenseMap, Func,
-    FuncDefBody, GlobalVar, Module, Type, Value, spv,
+    DataInstForm, DataInstFormDef, DataInstInput, DataInstKind, DeclDef, EntityOrientedDenseMap,
+    Func, FuncDefBody, GlobalVar, Module, Type, Value, spv,
 };
 use std::collections::VecDeque;
 use std::iter;
@@ -353,7 +353,9 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                     }
                     Value::DataInstOutput(inst) => {
                         for &input in &func.at(inst).def().inputs {
-                            self.mark_used(input);
+                            if let DataInstInput::Value(v) = input {
+                                self.mark_used(v);
+                            }
                         }
                     }
                 }

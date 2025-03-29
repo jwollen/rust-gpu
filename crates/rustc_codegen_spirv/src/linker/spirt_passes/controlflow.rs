@@ -4,8 +4,9 @@ use crate::custom_insts::{self, CustomInst, CustomOp};
 use smallvec::SmallVec;
 use spirt::func_at::FuncAt;
 use spirt::{
-    Attr, AttrSet, ConstDef, ConstKind, ControlNodeKind, DataInstFormDef, DataInstKind, DeclDef,
-    EntityDefs, ExportKey, Exportee, Module, Type, TypeDef, TypeKind, TypeOrConst, Value, cfg, spv,
+    Attr, AttrSet, ConstDef, ConstKind, ControlNodeKind, DataInstFormDef, DataInstInput,
+    DataInstKind, DeclDef, EntityDefs, ExportKey, Exportee, Module, Type, TypeDef, TypeKind,
+    TypeOrConst, Value, cfg, spv,
 };
 use std::fmt::Write as _;
 
@@ -115,7 +116,7 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                     let data_inst_form_def = &cx[data_inst_def.form];
                     if let DataInstKind::SpvInst(spv_inst) = &data_inst_form_def.kind
                         && spv_inst.opcode == wk.OpLoad
-                        && let Value::Const(ct) = data_inst_def.inputs[0]
+                        && let Value::Const(ct) = data_inst_def.inputs[0].unwrap_value()
                         && let ConstKind::PtrToGlobalVar(gv) = cx[ct].kind
                         && interface_global_vars.contains(&gv)
                     {
@@ -316,9 +317,9 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                                     col_end: _,
                                 } => {
                                     current_debug_src_loc = Some((
-                                        &cx[const_str(file)],
-                                        const_u32(line_start),
-                                        const_u32(col_start),
+                                        &cx[const_str(file.unwrap_value())],
+                                        const_u32(line_start.unwrap_value()),
+                                        const_u32(col_start.unwrap_value()),
                                     ));
                                 }
                                 CustomInst::ClearDebugSrcLoc => current_debug_src_loc = None,
@@ -326,7 +327,7 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                                     if backtrace {
                                         call_stack.push((
                                             current_debug_src_loc.take(),
-                                            const_str(callee_name),
+                                            const_str(callee_name.unwrap_value()),
                                         ));
                                     }
                                 }
@@ -344,7 +345,9 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                         let (message_debug_printf_fmt_str, message_debug_printf_args) =
                             message_debug_printf
                                 .split_first()
-                                .map(|(&fmt_str, args)| (&cx[const_str(fmt_str)], args))
+                                .map(|(&fmt_str, args)| {
+                                    (&cx[const_str(fmt_str.unwrap_value())], args)
+                                })
                                 .unwrap_or_default();
 
                         let fmt_dbg_src_loc = |(file, line, col)| {
@@ -367,7 +370,7 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
 
                         // HACK(eddyb) turn "panic" into "panicked", while the
                         // general case looks like "abort" -> "aborted".
-                        match &cx[const_str(abort_kind)] {
+                        match &cx[const_str(abort_kind.unwrap_value())] {
                             "panic" => fmt += "panicked",
                             verb => {
                                 fmt += verb;
@@ -416,10 +419,16 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                             },
                             output_type: cx[abort_inst_def.form].output_type,
                         });
-                        abort_inst_def.inputs = [Value::Const(mk_const_str(cx.intern(fmt)))]
+                        let mk_const_str =
+                            DataInstInput::Value(Value::Const(mk_const_str(cx.intern(fmt))));
+                        let debug_printf_context_inputs = debug_printf_context_inputs
+                            .iter()
+                            .copied()
+                            .map(DataInstInput::Value);
+                        abort_inst_def.inputs = [mk_const_str]
                             .into_iter()
                             .chain(message_debug_printf_args.iter().copied())
-                            .chain(debug_printf_context_inputs.iter().copied())
+                            .chain(debug_printf_context_inputs)
                             .collect();
 
                         // Avoid removing the instruction we just replaced.

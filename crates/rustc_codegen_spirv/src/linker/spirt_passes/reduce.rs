@@ -513,7 +513,7 @@ impl TryFrom<(&Context, &DataInstDef)> for Reducible {
         if let DataInstKind::SpvInst(spv_inst) = &inst_form_def.kind {
             let op = PureOp::try_from(spv_inst)?;
             let output_type = inst_form_def.output_type.unwrap();
-            if let [input] = inst_def.inputs[..] {
+            if let [spirt::DataInstInput::Value(input)] = inst_def.inputs[..] {
                 return Ok(Self {
                     op,
                     output_type,
@@ -539,7 +539,7 @@ impl Reducible {
                 kind: DataInstKind::SpvInst(op.try_into().ok()?),
                 output_type: Some(output_type),
             }),
-            inputs: iter::once(input).collect(),
+            inputs: iter::once(spirt::DataInstInput::Value(input)).collect(),
         })
     }
 }
@@ -671,8 +671,8 @@ impl Reducible<&DataInstDef> {
                     if input_spv_inst.opcode == wk.OpCompositeInsert
                         && input_spv_inst.imms.len() == 1
                     {
-                        let new_elem = input_inst_def.inputs[0];
-                        let prev_composite = input_inst_def.inputs[1];
+                        let new_elem = input_inst_def.inputs[0].unwrap_value();
+                        let prev_composite = input_inst_def.inputs[1].unwrap_value();
                         return Some(if input_spv_inst.imms[0] == elem_idx {
                             ReductionStep::Complete(new_elem)
                         } else {

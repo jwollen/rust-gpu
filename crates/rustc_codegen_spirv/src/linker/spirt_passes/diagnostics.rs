@@ -292,11 +292,11 @@ impl UseOrigin<'_> {
                     };
 
                     span_regen.src_loc_to_rustc(SrcLocDecoration {
-                        file_name: &cx[const_str(file)],
-                        line_start: const_u32(line_start),
-                        line_end: const_u32(line_end),
-                        col_start: const_u32(col_start),
-                        col_end: const_u32(col_end),
+                        file_name: &cx[const_str(file.unwrap_value())],
+                        line_start: const_u32(line_start.unwrap_value()),
+                        line_end: const_u32(line_end.unwrap_value()),
+                        col_start: const_u32(col_start.unwrap_value()),
+                        col_end: const_u32(col_end.unwrap_value()),
                     })
                 })
                 .or_else(|| span_regen.spirt_attrs_to_rustc_span(cx, func_attrs)),
@@ -651,7 +651,7 @@ impl<'a> Visitor<'a> for DiagnosticReporter<'a> {
                                 self.use_stack.push(UseOrigin::IntraFunc {
                                     func_attrs: AttrSet::default(),
                                     special_func: Some(SpecialFunc::Inlined {
-                                        callee_name: const_str(callee_name),
+                                        callee_name: const_str(callee_name.unwrap_value()),
                                     }),
                                     last_debug_src_loc_inst: None,
                                     inst_attrs: AttrSet::default(),
