@@ -101,7 +101,12 @@ impl SpirvValue {
                 match entry.val {
                     SpirvConst::PtrTo { pointee } => {
                         let ty = match cx.lookup_type(self.ty) {
-                            SpirvType::Pointer { pointee } => pointee,
+                            SpirvType::Pointer {
+                                pointee: Some(pointee),
+                            } => pointee,
+                            ty @ SpirvType::Pointer { .. } => {
+                                bug!("load called on untyped pointer: {:?}", ty)
+                            }
                             ty => bug!("load called on value that wasn't a pointer: {:?}", ty),
                         };
                         // FIXME(eddyb) deduplicate this `if`-`else` and its other copies.
@@ -193,17 +198,19 @@ impl SpirvValue {
                 original_ptr_ty,
                 bitcast_result_id,
             } => {
-                cx.zombie_with_span(
-                    bitcast_result_id,
-                    span,
-                    &format!(
-                        "cannot cast between pointer types\
-                         \nfrom `{}`\
-                         \n  to `{}`",
-                        cx.debug_type(original_ptr_ty),
-                        cx.debug_type(self.ty)
-                    ),
-                );
+                if !cx.builder.has_capability(Capability::UntypedPointersKHR) {
+                    cx.zombie_with_span(
+                        bitcast_result_id,
+                        span,
+                        &format!(
+                            "cannot cast between pointer types\
+                            \nfrom `{}`\
+                            \n  to `{}`",
+                            cx.debug_type(original_ptr_ty),
+                            cx.debug_type(self.ty)
+                        ),
+                    );
+                }
 
                 bitcast_result_id
             }
@@ -984,7 +991,7 @@ impl<'tcx> BuilderSpirv<'tcx> {
             .expect("set_global_initializer global not found");
         // Remove and push it to the end, to keep spir-v definition order.
         let mut inst = module.types_global_values.remove(index);
-        assert_eq!(inst.class.opcode, Op::Variable);
+        assert_eq!(inst.class.opcode, Op::Variable); // TODO
         assert_eq!(
             inst.operands.len(),
             1,

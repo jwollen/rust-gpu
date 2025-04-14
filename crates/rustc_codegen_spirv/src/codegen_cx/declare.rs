@@ -299,7 +299,8 @@ impl<'tcx> CodegenCx<'tcx> {
     }
 
     fn declare_global(&self, span: Span, ty: Word) -> SpirvValue {
-        let ptr_ty = SpirvType::Pointer { pointee: ty }.def(span, self);
+        // Could be explicitly StorageClass::Private but is inferred anyway.
+        let ptr_ty = SpirvType::Pointer { pointee: Some(ty) }.def(span, self);
         // FIXME(eddyb) figure out what the correct storage class is.
         let result = self
             .emit_global()
@@ -388,7 +389,13 @@ impl<'tcx> StaticCodegenMethods for CodegenCx<'tcx> {
             Err(_) => return,
         };
         let value_ty = match self.lookup_type(g.ty) {
-            SpirvType::Pointer { pointee } => pointee,
+            SpirvType::Pointer {
+                pointee: Some(pointee),
+            } => pointee,
+            untyped @ SpirvType::Pointer { pointee: None, .. } => self.tcx.dcx().fatal(format!(
+                "global had untyped non-pointer type {}",
+                untyped.debug(g.ty, self)
+            )),
             other => self.tcx.dcx().fatal(format!(
                 "global had non-pointer type {}",
                 other.debug(g.ty, self)

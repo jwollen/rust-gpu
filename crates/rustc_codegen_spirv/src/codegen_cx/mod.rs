@@ -227,12 +227,16 @@ impl<'tcx> CodegenCx<'tcx> {
         self.lookup_type(ty).debug(ty, self)
     }
 
+    pub fn type_ptr(&self) -> Word {
+        SpirvType::Pointer { pointee: None }.def(DUMMY_SP, self)
+    }
+
     pub fn type_ptr_to(&self, ty: Word) -> Word {
-        SpirvType::Pointer { pointee: ty }.def(DUMMY_SP, self)
+        SpirvType::Pointer { pointee: Some(ty) }.def(DUMMY_SP, self)
     }
 
     pub fn type_ptr_to_ext(&self, ty: Word, _address_space: AddressSpace) -> Word {
-        SpirvType::Pointer { pointee: ty }.def(DUMMY_SP, self)
+        SpirvType::Pointer { pointee: Some(ty) }.def(DUMMY_SP, self)
     }
 
     /// Zombie system:
@@ -840,7 +844,7 @@ impl<'tcx> MiscCodegenMethods<'tcx> for CodegenCx<'tcx> {
         let span = self.tcx.def_span(instance.def_id());
 
         let ty = SpirvType::Pointer {
-            pointee: function.ty,
+            pointee: Some(function.ty),
         }
         .def(span, self);
 

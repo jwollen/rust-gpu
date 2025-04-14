@@ -116,7 +116,7 @@ fn get_type_map(module: &Module) -> FxHashMap<Word, Word> {
     let vars = module
         .types_global_values
         .iter()
-        .filter(|i| i.class.opcode == Op::Variable)
+        .filter(|i| matches!(i.class.opcode, Op::Variable | Op::UntypedVariableKHR))
         .map(|i| (i.result_id.unwrap(), i.result_type.unwrap()));
     let fns = module.functions.iter().map(|i| {
         let d = i.def.as_ref().unwrap();
@@ -173,6 +173,8 @@ fn check_tys_equal(
                         if let Some(id) = op.id_ref_any() {
                             write!(buf, " ").unwrap();
                             format_ty(ty_defs, id, buf);
+                        } else {
+                            write!(buf, " {:?}", op).unwrap();
                         }
                     }
                     write!(buf, ")").unwrap();

@@ -342,7 +342,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     fn ordering_to_semantics_def(&mut self, ordering: AtomicOrdering) -> SpirvValue {
         let mut invalid_seq_cst = false;
         let semantics = match ordering {
-            AtomicOrdering::Relaxed => MemorySemantics::NONE,
+            AtomicOrdering::Relaxed => MemorySemantics::RELAXED,
             AtomicOrdering::Acquire => MemorySemantics::MAKE_VISIBLE | MemorySemantics::ACQUIRE,
             AtomicOrdering::Release => MemorySemantics::MAKE_AVAILABLE | MemorySemantics::RELEASE,
             AtomicOrdering::AcqRel => {
@@ -612,8 +612,13 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     ) -> Option<(SpirvValue, <Self as BackendTypes>::Type)> {
         let ptr = ptr.strip_ptrcasts();
         let mut leaf_ty = match self.lookup_type(ptr.ty) {
-            SpirvType::Pointer { pointee } => pointee,
-            other => self.fatal(format!("`ptr` is non-pointer type: {other:?}")),
+            SpirvType::Pointer {
+                pointee: Some(pointee),
+            } => pointee,
+            SpirvType::Pointer { pointee: None, .. } => {
+                return Some((ptr, self.type_array(self.type_i8(), size.bytes())));
+            }
+            other => self.fatal(format!("ptr is non-pointer type: {other:?}")),
         };
 
         trace!(
@@ -894,7 +899,9 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             // a whole `OpVariable`, or the result of a previous `OpAccessChain`).
             let original_ptr = ptr.strip_ptrcasts();
             let original_pointee_ty = match self.lookup_type(original_ptr.ty) {
-                SpirvType::Pointer { pointee } => pointee,
+                SpirvType::Pointer {
+                    pointee: Some(pointee),
+                } => pointee,
                 other => self.fatal(format!("pointer arithmetic on non-pointer type {other:?}")),
             };
 
@@ -1010,6 +1017,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     fn emit_access_chain(
         &mut self,
         result_type: <Self as BackendTypes>::Type,
+        //base_type: Option<<Self as BackendTypes>::Type>,
         pointer: Word,
         ptr_base_index: Option<SpirvValue>,
         indices: Vec<Word>,
@@ -1017,34 +1025,72 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     ) -> SpirvValue {
         let mut builder = self.emit();
 
+        let base_type = None;
+
         let non_zero_ptr_base_index =
             ptr_base_index.filter(|&idx| self.builder.lookup_const_scalar(idx) != Some(0));
         if let Some(ptr_base_index) = non_zero_ptr_base_index {
             let result = if is_inbounds {
-                builder.in_bounds_ptr_access_chain(
-                    result_type,
-                    None,
-                    pointer,
-                    ptr_base_index.def(self),
-                    indices,
-                )
+                if let Some(base_type) = base_type {
+                    builder.untyped_in_bounds_ptr_access_chain_khr(
+                        result_type,
+                        None,
+                        base_type,
+                        pointer,
+                        ptr_base_index.def(self),
+                        indices,
+                    )
+                } else {
+                    builder.in_bounds_ptr_access_chain(
+                        result_type,
+                        None,
+                        pointer,
+                        ptr_base_index.def(self),
+                        indices,
+                    )
+                }
             } else {
-                builder.ptr_access_chain(
-                    result_type,
-                    None,
-                    pointer,
-                    ptr_base_index.def(self),
-                    indices,
-                )
+                if let Some(base_type) = base_type {
+                    builder.untyped_ptr_access_chain_khr(
+                        result_type,
+                        None,
+                        base_type,
+                        pointer,
+                        ptr_base_index.def(self),
+                        indices,
+                    )
+                } else {
+                    builder.ptr_access_chain(
+                        result_type,
+                        None,
+                        pointer,
+                        ptr_base_index.def(self),
+                        indices,
+                    )
+                }
             }
             .unwrap();
             self.zombie(result, "cannot offset a pointer to an arbitrary element");
             result
         } else {
             if is_inbounds {
-                builder.in_bounds_access_chain(result_type, None, pointer, indices)
+                if let Some(base_type) = base_type {
+                    builder.untyped_in_bounds_access_chain_khr(
+                        result_type,
+                        None,
+                        base_type,
+                        pointer,
+                        indices,
+                    )
+                } else {
+                    builder.in_bounds_access_chain(result_type, None, pointer, indices)
+                }
             } else {
-                builder.access_chain(result_type, None, pointer, indices)
+                if let Some(base_type) = base_type {
+                    builder.untyped_access_chain_khr(result_type, None, base_type, pointer, indices)
+                } else {
+                    builder.access_chain(result_type, None, pointer, indices)
+                }
             }
             .unwrap()
         }
@@ -2417,45 +2463,61 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                 "pointercast called on non-pointer dest type: {other:?}"
             )),
         };
-        let dest_pointee_size = self.lookup_type(dest_pointee).sizeof(self);
 
-        if let Some((indices, _)) = self.recover_access_chain_from_offset(
-            ptr_pointee,
-            Size::ZERO,
-            dest_pointee_size..=dest_pointee_size,
-            Some(dest_pointee),
-        ) {
-            trace!("`recover_access_chain_from_offset` returned something");
-            trace!(
-                "ptr_pointee: {}, dest_pointee {}",
-                self.debug_type(ptr_pointee),
-                self.debug_type(dest_pointee),
-            );
-            let indices = indices
-                .into_iter()
-                .map(|idx| self.constant_u32(self.span(), idx).def(self))
-                .collect::<Vec<_>>();
-            self.emit()
-                .in_bounds_access_chain(dest_ty, None, ptr.def(self), indices)
-                .unwrap()
-                .with_type(dest_ty)
-        } else {
-            trace!("`recover_access_chain_from_offset` returned `None`");
-            trace!(
-                "ptr_pointee: {}, dest_pointee {}",
-                self.debug_type(ptr_pointee),
-                self.debug_type(dest_pointee),
-            );
-            // Defer the cast so that it has a chance to be avoided.
-            let original_ptr = ptr.def(self);
-            SpirvValue {
-                kind: SpirvValueKind::LogicalPtrCast {
-                    original_ptr,
-                    original_ptr_ty: ptr.ty,
-                    bitcast_result_id: self.emit().bitcast(dest_ty, None, original_ptr).unwrap(),
-                },
-                ty: dest_ty,
+        // With UntypedPointersKHR any op can reinterpret pointers
+        if self.builder.has_capability(Capability::UntypedPointersKHR) {
+            return ptr;
+        }
+
+        if let Some(ptr_pointee) = ptr_pointee
+            && let Some(dest_pointee) = dest_pointee
+        {
+            if ptr_pointee == dest_pointee {
+                return ptr;
             }
+
+            let dest_pointee_size = self.lookup_type(dest_pointee).sizeof(self);
+
+            if let Some((indices, _)) = self.recover_access_chain_from_offset(
+                ptr_pointee,
+                Size::ZERO,
+                dest_pointee_size..=dest_pointee_size,
+                Some(dest_pointee),
+            ) {
+                trace!("`recover_access_chain_from_offset` returned something");
+                trace!(
+                    "ptr_pointee: {}, dest_pointee {}",
+                    self.debug_type(ptr_pointee),
+                    self.debug_type(dest_pointee),
+                );
+                let indices = indices
+                    .into_iter()
+                    .map(|idx| self.constant_u32(self.span(), idx).def(self))
+                    .collect::<Vec<_>>();
+                return self
+                    .emit()
+                    .in_bounds_access_chain(dest_ty, None, ptr.def(self), indices)
+                    .unwrap()
+                    .with_type(dest_ty);
+            } else {
+                trace!("`recover_access_chain_from_offset` returned `None`");
+                trace!(
+                    "ptr_pointee: {}, dest_pointee {}",
+                    self.debug_type(ptr_pointee),
+                    self.debug_type(dest_pointee),
+                );
+            }
+        }
+
+        // Defer the cast so that it has a chance to be avoided.
+        let original_ptr = ptr.def(self);
+        SpirvValue {
+            kind: SpirvValueKind::LogicalPtrCast {
+                original_ptr,
+                original_ptr_ty: ptr.ty,
+                bitcast_result_id: self.emit().bitcast(dest_ty, None, original_ptr).unwrap(),
+            },
+            ty: dest_ty,
         }
     }
 
@@ -2902,6 +2964,11 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                 self.debug_type(ptr.ty)
             )),
         };
+
+        let Some(elem_ty) = elem_ty else {
+            unimplemented!()
+        };
+
         let elem_ty_spv = self.lookup_type(elem_ty);
         let pat = match self.builder.lookup_const_scalar(fill_byte) {
             Some(fill_byte) => self.memset_const_pattern(&elem_ty_spv, fill_byte as u8),
@@ -3264,7 +3331,9 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
         // be fixed upstream, so we never see any "function pointer" values being
         // created just to perform direct calls.
         let (callee_val, result_type, argument_types) = match self.lookup_type(callee.ty) {
-            SpirvType::Pointer { pointee } => match self.lookup_type(pointee) {
+            SpirvType::Pointer {
+                pointee: Some(pointee),
+            } => match self.lookup_type(pointee) {
                 SpirvType::Function {
                     return_type,
                     arguments,

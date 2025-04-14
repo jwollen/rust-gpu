@@ -1293,13 +1293,22 @@ impl<'a, S: Specialization> InferCx<'a, S> {
                     // not "generic", so it would return early as ambiguous.
                     TyPat::Void => unreachable!(),
 
-                    TyPat::Pointer(storage_class_pat, pointee_pat) => {
+                    TyPat::Pointer(storage_class_pat, pointee_pat)
+                    | TyPat::TypedPointer(storage_class_pat, pointee_pat) => {
                         let mut ty_operands = ty_operands.iter(self);
-                        let (storage_class, pointee_ty) =
-                            (ty_operands.next().unwrap(), ty_operands.next().unwrap());
-                        Ok(self
-                            .match_storage_class_pat(storage_class_pat, storage_class)
-                            .and(self.match_ty_pat(pointee_pat, pointee_ty)?))
+                        let storage_class = ty_operands.next().unwrap();
+                        let m = self.match_storage_class_pat(storage_class_pat, storage_class);
+                        Ok(if let Some(pointee_ty) = ty_operands.next() {
+                            m.and(self.match_ty_pat(pointee_pat, pointee_ty)?)
+                        } else {
+                            assert!(!matches!(pat, TyPat::TypedPointer(..)));
+                            m
+                        })
+                    }
+                    TyPat::UntypedPointer(storage_class_pat) => {
+                        let mut ty_operands = ty_operands.iter(self);
+                        let storage_class = ty_operands.next().unwrap();
+                        Ok(self.match_storage_class_pat(storage_class_pat, storage_class))
                     }
                     TyPat::Array(pat) => simple(Op::TypeArray, pat),
                     TyPat::Vector(pat) => simple(Op::TypeVector, pat),

@@ -391,9 +391,13 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                         .emit();
                 }
                 SpirvType::Pointer {
-                    pointee: inst.operands[1].unwrap_id_ref(),
+                    pointee: Some(inst.operands[1].unwrap_id_ref()),
                 }
                 .def(self.span(), self)
+            }
+            Op::TypeUntypedPointerKHR => {
+                // The storage class can be specified explicitly or inferred later by using StorageClass::Generic.
+                SpirvType::Pointer { pointee: None }.def(self.span(), self)
             }
             Op::TypeImage => SpirvType::Image {
                 sampled_type: inst.operands[0].unwrap_id_ref(),
@@ -414,7 +418,7 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                 SpirvType::AccelerationStructureKhr.def(self.span(), self)
             }
             Op::TypeRayQueryKHR => SpirvType::RayQueryKhr.def(self.span(), self),
-            Op::Variable => {
+            Op::Variable | Op::UntypedVariableKHR => {
                 // OpVariable with Function storage class should be emitted inside the function,
                 // however, all other OpVariables should appear in the global scope instead.
                 if inst.operands[0].unwrap_storage_class() == StorageClass::Function {
@@ -704,9 +708,20 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                 _ => match (pat, cx.lookup_type(ty)) {
                     (TyPat::Any | &TyPat::T | TyPat::Either(..), _) => unreachable!(),
 
+                    (
+                        TyPat::TypedPointer(_, pat) | TyPat::Pointer(_, pat),
+                        SpirvType::Pointer {
+                            pointee: Some(ty), ..
+                        },
+                    ) => match_ty_pat(cx, pat, ty),
+
+                    (
+                        TyPat::UntypedPointer(_) | TyPat::Pointer(_, _),
+                        SpirvType::Pointer { pointee: None, .. },
+                    ) => Ok([None]),
+
                     (TyPat::Void, SpirvType::Void) => Ok([None]),
-                    (TyPat::Pointer(_, pat), SpirvType::Pointer { pointee: ty, .. })
-                    | (TyPat::Vector(pat), SpirvType::Vector { element: ty, .. })
+                    (TyPat::Vector(pat), SpirvType::Vector { element: ty, .. })
                     | (
                         TyPat::Vector4(pat),
                         SpirvType::Vector {
@@ -747,10 +762,12 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                     _ => return Err(Ambiguous),
                 },
 
-                TyPat::Pointer(_, pat) => SpirvType::Pointer {
-                    pointee: subst_ty_pat(cx, pat, ty_vars, leftover_operands)?,
+                TyPat::TypedPointer(_, pat) | TyPat::Pointer(_, pat) => SpirvType::Pointer {
+                    pointee: Some(subst_ty_pat(cx, pat, ty_vars, leftover_operands)?),
                 }
                 .def(DUMMY_SP, cx),
+
+                TyPat::UntypedPointer(_) => SpirvType::Pointer { pointee: None }.def(DUMMY_SP, cx),
 
                 TyPat::Vector4(pat) => SpirvType::Vector {
                     element: subst_ty_pat(cx, pat, ty_vars, leftover_operands)?,
@@ -1004,7 +1021,19 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                     Some(match kind {
                         TypeofKind::Plain => ty,
                         TypeofKind::Dereference => match self.lookup_type(ty) {
-                            SpirvType::Pointer { pointee } => pointee,
+                            SpirvType::Pointer {
+                                pointee: Some(pointee),
+                            } => pointee,
+                            untyped @ SpirvType::Pointer { .. } => {
+                                self.tcx.dcx().span_err(
+                                    span,
+                                    format!(
+                                        "cannot use typeof* on untyped pointer type: {}",
+                                        untyped.debug(ty, self)
+                                    ),
+                                );
+                                ty
+                            }
                             other => {
                                 self.tcx.dcx().span_err(
                                     span,
@@ -1026,7 +1055,19 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                     self.check_reg(span, reg);
                     if let Some(place) = place {
                         match self.lookup_type(place.val.llval.ty) {
-                            SpirvType::Pointer { pointee } => Some(pointee),
+                            SpirvType::Pointer {
+                                pointee: Some(pointee),
+                            } => Some(pointee),
+                            untyped @ SpirvType::Pointer { .. } => {
+                                self.tcx.dcx().span_err(
+                                    span,
+                                    format!(
+                                        "out register type is untyped pointer: {}",
+                                        untyped.debug(place.val.llval.ty, self)
+                                    ),
+                                );
+                                None
+                            }
                             other => {
                                 self.tcx.dcx().span_err(
                                     span,

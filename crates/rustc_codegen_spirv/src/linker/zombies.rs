@@ -141,7 +141,8 @@ impl<'a> Zombies<'a> {
                     _ => {}
                 }
 
-                if [Op::Variable, Op::Bitcast].contains(&inst.class.opcode) {
+                if [Op::Variable, Op::UntypedVariableKHR, Op::Bitcast].contains(&inst.class.opcode)
+                {
                     let result_id = inst.result_id.unwrap();
                     if self.id_to_zombie_kind.contains_key(&result_id) {
                         continue;

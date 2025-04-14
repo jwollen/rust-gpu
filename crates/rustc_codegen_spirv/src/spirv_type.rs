@@ -60,7 +60,7 @@ pub enum SpirvType<'tcx> {
         element: Word,
     },
     Pointer {
-        pointee: Word,
+        pointee: Option<Word>,
     },
     Function {
         return_type: Word,
@@ -149,15 +149,25 @@ impl SpirvType<'_> {
                 // NOTE(eddyb) we emit `StorageClass::Generic` here, but later
                 // the linker will specialize the entire SPIR-V module to use
                 // storage classes inferred from `OpVariable`s.
-                let result = cx
-                    .emit_global()
-                    .type_pointer(id, StorageClass::Generic, pointee);
-                // no pointers to functions
-                if let SpirvType::Function { .. } = cx.lookup_type(pointee) {
-                    // FIXME(eddyb) use the `SPV_INTEL_function_pointers` extension.
-                    cx.zombie_with_span(result, def_span, "function pointer types are not allowed");
+                if let Some(pointee) = pointee {
+                    let result = cx
+                        .emit_global()
+                        .type_pointer(id, StorageClass::Generic, pointee);
+                    // no pointers to functions
+                    if let SpirvType::Function { .. } = cx.lookup_type(pointee) {
+                        // FIXME(eddyb) use the `SPV_INTEL_function_pointers` extension.
+                        cx.zombie_with_span(
+                            result,
+                            def_span,
+                            "function pointer types are not allowed",
+                        );
+                    }
+                    result
+                } else {
+                    cx.emit_global()
+                        .type_untyped_pointer(id, StorageClass::Generic)
+                    // TODO(jwollen) zombie
                 }
-                result
             }
             Self::Function {
                 return_type,
@@ -235,15 +245,25 @@ impl SpirvType<'_> {
                 // NOTE(eddyb) we emit `StorageClass::Generic` here, but later
                 // the linker will specialize the entire SPIR-V module to use
                 // storage classes inferred from `OpVariable`s.
-                let result =
+                if let Some(pointee) = pointee {
+                    let result =
+                        cx.emit_global()
+                            .type_pointer(Some(id), StorageClass::Generic, pointee);
+                    // no pointers to functions
+                    if let SpirvType::Function { .. } = cx.lookup_type(pointee) {
+                        // FIXME(eddyb) use the `SPV_INTEL_function_pointers` extension.
+                        cx.zombie_with_span(
+                            result,
+                            def_span,
+                            "function pointer types are not allowed",
+                        );
+                    }
+                    result
+                } else {
                     cx.emit_global()
-                        .type_pointer(Some(id), StorageClass::Generic, pointee);
-                // no pointers to functions
-                if let SpirvType::Function { .. } = cx.lookup_type(pointee) {
-                    // FIXME(eddyb) use the `SPV_INTEL_function_pointers` extension.
-                    cx.zombie_with_span(result, def_span, "function pointer types are not allowed");
+                        .type_untyped_pointer(Some(id), StorageClass::Generic)
+                    // TODO(jwollen) zombie
                 }
-                result
             }
             ref other => cx
                 .tcx
@@ -534,7 +554,10 @@ impl fmt::Debug for SpirvTypePrinter<'_, '_> {
             SpirvType::Pointer { pointee } => f
                 .debug_struct("Pointer")
                 .field("id", &self.id)
-                .field("pointee", &self.cx.debug_type(pointee))
+                .field(
+                    "pointee",
+                    &pointee.map(|pointee| self.cx.debug_type(pointee)),
+                )
                 .finish(),
             SpirvType::Function {
                 return_type,
@@ -686,7 +709,11 @@ impl SpirvTypePrinter<'_, '_> {
             }
             SpirvType::Pointer { pointee } => {
                 f.write_str("*")?;
-                ty(self.cx, stack, f, pointee)
+                if let Some(pointee) = pointee {
+                    ty(self.cx, stack, f, pointee)
+                } else {
+                    f.write_str("<untyped>")
+                }
             }
             SpirvType::Function {
                 return_type,

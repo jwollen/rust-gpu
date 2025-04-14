@@ -69,9 +69,15 @@ pub enum TyPat<'a> {
     /// > `OpTypeImage` (unless that underlying *Sampled Type* is `OpTypeVoid`).
     Void,
 
-    /// `OpTypePointer`, with an inner pattern for its *Storage Class* operand,
-    /// and another for its *Type* operand.
+    /// Any pointer (`OpTypePointer` or `OpTypeUntypedPointer`), with an inner pattern
+    /// for its *Storage Class* operand, and another for its optional *Type* operand.
     Pointer(&'a StorageClassPat, &'a TyPat<'a>),
+
+    /// Similar to `Pointer` but only allows `OpTypePointer`
+    TypedPointer(&'a StorageClassPat, &'a TyPat<'a>),
+
+    /// Similar to `Pointer` but only allows `OpTypeUntypedPointer`
+    UntypedPointer(&'a StorageClassPat),
 
     // FIXME(eddyb) try to DRY the same-shape patterns below.
     //
@@ -188,7 +194,7 @@ pub fn instruction_signatures(op: Op) -> Option<&'static [InstSig<'static>]> {
         // i.e. all but those two variants.
         pub use super::TyPat::{
             Array, Either, Function, Image, IndexComposite, Matrix, Pipe, Pointer, SampledImage,
-            Struct, Vector, Vector4, Void,
+            Struct, TypedPointer, UntypedPointer, Vector, Vector4, Void,
         };
         pub const T: super::TyPat<'_> = super::TyPat::T;
         pub use super::TyListPat::Repeat;
@@ -292,6 +298,7 @@ pub fn instruction_signatures(op: Op) -> Option<&'static [InstSig<'static>]> {
         | Op::TypeStruct
         | Op::TypeOpaque
         | Op::TypePointer
+        | Op::TypeUntypedPointerKHR
         | Op::TypeFunction
         | Op::TypeEvent
         | Op::TypeDeviceEvent
@@ -326,21 +333,35 @@ pub fn instruction_signatures(op: Op) -> Option<&'static [InstSig<'static>]> {
 
         // 3.37.8. Memory Instructions
         Op::Variable => sig! {
-            {S} () -> Pointer(S, _) |
-            {S} (T) -> Pointer(S, T)
+            {S} () -> TypedPointer(S, _) |
+            {S} (T) -> TypedPointer(S, T)
         },
-        Op::ImageTexelPointer => sig! { (Pointer(_, Image(T)), _, _) -> Pointer(_, T) },
+        Op::UntypedVariableKHR => sig! {
+            {S} () -> UntypedPointer(S) |
+            {S} (_) -> UntypedPointer(S)
+        },
+        Op::ImageTexelPointer => sig! { (TypedPointer(_, Image(T)), _, _) -> Pointer(_, T) },
         Op::Load => sig! { (Pointer(_, T)) -> T },
         Op::Store => sig! { (Pointer(_, T), T) },
-        Op::CopyMemory => sig! { (Pointer(_, T), Pointer(_, T)) },
+        Op::CopyMemory => sig! {
+            (TypedPointer(_, T), Pointer(_, T)) |
+            (Pointer(_, T), TypedPointer(_, T))
+        },
         Op::CopyMemorySized => {}
         Op::AccessChain | Op::InBoundsAccessChain => sig! {
-            (Pointer(S, T), ../*indices*/) -> Pointer(S, IndexComposite(T))
+            (Pointer(S, T), ../*indices*/) -> TypedPointer(S, IndexComposite(T))
         },
         Op::PtrAccessChain | Op::InBoundsPtrAccessChain => sig! {
-            (Pointer(S, T), _, ../*indices*/) -> Pointer(S, IndexComposite(T))
+            (Pointer(S, T), _, ../*indices*/) -> TypedPointer(S, IndexComposite(T))
         },
-        Op::ArrayLength | Op::GenericPtrMemSemantics => {}
+        // TODO: Operand is type
+        Op::UntypedAccessChainKHR | Op::UntypedInBoundsAccessChainKHR => sig! {
+            (_, Pointer(S, T), ../*indices*/) -> UntypedPointer(S)
+        },
+        Op::UntypedPtrAccessChainKHR | Op::UntypedInBoundsPtrAccessChainKHR => sig! {
+            (_, Pointer(S, T), _, ../*indices*/) -> UntypedPointer(S)
+        },
+        Op::ArrayLength | Op::UntypedArrayLengthKHR | Op::GenericPtrMemSemantics => {}
         // SPIR-V 1.4
         Op::PtrEqual | Op::PtrNotEqual | Op::PtrDiff => sig! {
             (Pointer(_, T), Pointer(_, T)) -> _
@@ -1096,9 +1117,9 @@ pub fn instruction_signatures(op: Op) -> Option<&'static [InstSig<'static>]> {
         | Op::ImageBlockMatchSSDQCOM
         | Op::ImageBlockMatchSADQCOM => reserved!(SPV_QCOM_image_processing),
         // SPV_AMDX_shader_enqueue
-        Op::FinalizeNodePayloadsAMDX
-        | Op::FinishWritingNodePayloadAMDX
-        | Op::InitializeNodePayloadsAMDX => reserved!(SPV_AMDX_shader_enqueue),
+        // Op::FinalizeNodePayloadAMDX
+        // | Op::FinishWritingNodePayloadAMDX
+        // | Op::InitializeNodePayloadsAMDX => reserved!(SPV_AMDX_shader_enqueue),
         // SPV_NV_displacement_micromap
         Op::FetchMicroTriangleVertexPositionNV | Op::FetchMicroTriangleVertexBarycentricNV => {
             reserved!(SPV_NV_displacement_micromap)
@@ -1124,6 +1145,8 @@ pub fn instruction_signatures(op: Op) -> Option<&'static [InstSig<'static>]> {
         | Op::SpecConstantCompositeContinuedINTEL
         | Op::ControlBarrierArriveINTEL
         | Op::ControlBarrierWaitINTEL => reserved!(unknown_extension_INTEL),
+
+        _ => todo!("unknown instruction: {:?}", op),
     }
 
     None

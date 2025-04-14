@@ -23,16 +23,17 @@ pub fn gather_all_interface_vars_from_uses(module: &mut Module) {
         let mut used_vars = IndexSet::new();
 
         // Base case: the global itself is an interface-relevant `OpVariable`.
-        let interface_relevant_var = inst.class.opcode == Op::Variable && {
-            if version > (1, 3) {
-                // SPIR-V >= v1.4 includes all OpVariables in the interface.
-                true
-            } else {
-                let storage_class = inst.operands[0].unwrap_storage_class();
-                // SPIR-V <= v1.3 only includes Input and Output in the interface.
-                storage_class == StorageClass::Input || storage_class == StorageClass::Output
-            }
-        };
+        let interface_relevant_var =
+            (inst.class.opcode == Op::Variable || inst.class.opcode == Op::UntypedVariableKHR) && {
+                if version > (1, 3) {
+                    // SPIR-V >= v1.4 includes all OpVariables in the interface.
+                    true
+                } else {
+                    let storage_class = inst.operands[0].unwrap_storage_class();
+                    // SPIR-V <= v1.3 only includes Input and Output in the interface.
+                    storage_class == StorageClass::Input || storage_class == StorageClass::Output
+                }
+            };
         if interface_relevant_var {
             used_vars.insert(inst.result_id.unwrap());
         }

@@ -431,7 +431,7 @@ impl<'tcx> RecursivePointeeCache<'tcx> {
                 // OpTypeForwardPointer has been emitted. This is the most common case.
                 PointeeDefState::Defining => {
                     let id = SpirvType::Pointer {
-                        pointee: pointee_spv,
+                        pointee: Some(pointee_spv),
                     }
                     .def(span, cx);
                     entry.insert(PointeeDefState::Defined(id));
@@ -442,7 +442,7 @@ impl<'tcx> RecursivePointeeCache<'tcx> {
                 PointeeDefState::DefiningWithForward(id) => {
                     entry.insert(PointeeDefState::Defined(id));
                     SpirvType::Pointer {
-                        pointee: pointee_spv,
+                        pointee: Some(pointee_spv),
                     }
                     .def_with_id(cx, span, id)
                 }

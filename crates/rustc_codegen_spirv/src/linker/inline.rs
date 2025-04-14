@@ -296,8 +296,10 @@ impl LegalGlobal {
         let mut legal_globals = FxHashMap::<_, Self>::default();
         for inst in &module.types_global_values {
             let global = match inst.class.opcode {
-                Op::TypePointer => Self::TypePointer(inst.operands[0].unwrap_storage_class()),
-                Op::Variable => Self::Variable,
+                Op::TypePointer | Op::TypeUntypedPointerKHR => {
+                    Self::TypePointer(inst.operands[0].unwrap_storage_class())
+                }
+                Op::Variable | Op::UntypedVariableKHR => Self::Variable,
                 op if rspirv::grammar::reflect::is_type(op) => Self::TypeNonPointer,
                 op if rspirv::grammar::reflect::is_constant(op) => Self::Const,
 
@@ -442,7 +444,10 @@ fn should_inline(
                                     );
                                     !may_be_debuginfo
                                 })
-                                .take_while(|caller_inst| caller_inst.class.opcode == Op::Variable),
+                                .take_while(|caller_inst| {
+                                    caller_inst.class.opcode == Op::Variable
+                                        || caller_inst.class.opcode == Op::UntypedVariableKHR
+                                }),
                         )
                         .map(|caller_inst| caller_inst.result_id.unwrap());
 
@@ -819,7 +824,7 @@ impl Inliner<'_, '_> {
                                 CustomOp::Abort => break,
                             }
                         }
-                        Op::Variable => {}
+                        Op::Variable | Op::UntypedVariableKHR => {}
                         _ => break,
                     }
                     vars_and_debuginfo_range.end += 1;
@@ -1067,7 +1072,7 @@ impl Inliner<'_, '_> {
                         CustomOp::Abort => break,
                     }
                 }
-                Op::Variable => continue,
+                Op::Variable | Op::UntypedVariableKHR => continue,
                 _ => break,
             };
 

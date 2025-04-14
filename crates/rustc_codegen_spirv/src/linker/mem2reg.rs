@@ -177,7 +177,7 @@ fn insert_phis_all(
     let var_maps_and_types = blocks[0]
         .instructions
         .iter()
-        .filter(|inst| inst.class.opcode == Op::Variable)
+        .filter(|inst| inst.class.opcode == Op::Variable) // TODO
         .filter_map(|inst| {
             let var = inst.result_id.unwrap();
             let var_ty = *pointer_to_pointee.get(&inst.result_type.unwrap()).unwrap();
@@ -371,7 +371,8 @@ fn has_store(block: &Block, var_map: &FxHashMap<Word, VarInfo>) -> bool {
         let ptr = match inst.class.opcode {
             Op::Store => inst.operands[0].id_ref_any().unwrap(),
             Op::Variable if inst.operands.len() < 2 => return false,
-            Op::Variable => inst.result_id.unwrap(),
+            Op::UntypedVariableKHR if inst.operands.len() < 3 => return false,
+            Op::Variable | Op::UntypedVariableKHR => inst.result_id.unwrap(),
             _ => return false,
         };
         var_map.contains_key(&ptr)
@@ -503,9 +504,16 @@ impl Renamer<'_, '_> {
         }
 
         for inst in &mut self.blocks[block].instructions {
-            if inst.class.opcode == Op::Variable && inst.operands.len() > 1 {
+            if (inst.class.opcode == Op::Variable && inst.operands.len() > 1)
+                || (inst.class.opcode == Op::UntypedVariableKHR && inst.operands.len() > 2)
+            {
                 let ptr = inst.result_id.unwrap();
-                let val = inst.operands[1].id_ref_any().unwrap();
+                let init = if inst.class.opcode == Op::Variable {
+                    &inst.operands[1]
+                } else {
+                    &inst.operands[2]
+                };
+                let val = init.id_ref_any().unwrap();
                 if let Some(var_info) = self.var_map.get(&ptr) {
                     assert_eq!(var_info.indices, Vec::<u32>::new());
                     self.stack.push(val);
@@ -592,7 +600,7 @@ fn remove_old_variables(
     var_maps_and_types: &[(FxHashMap<u32, VarInfo>, u32)],
 ) {
     blocks[0].instructions.retain(|inst| {
-        inst.class.opcode != Op::Variable || {
+        !matches!(inst.class.opcode, Op::Variable | Op::UntypedVariableKHR) || {
             let result_id = inst.result_id.unwrap();
             var_maps_and_types
                 .iter()
@@ -601,14 +609,19 @@ fn remove_old_variables(
     });
     for block in blocks.values_mut() {
         block.instructions.retain(|inst| {
-            !matches!(inst.class.opcode, Op::AccessChain | Op::InBoundsAccessChain)
-                || inst.operands.iter().all(|op| {
-                    op.id_ref_any().is_none_or(|id| {
-                        var_maps_and_types
-                            .iter()
-                            .all(|(var_map, _)| !var_map.contains_key(&id))
-                    })
+            !matches!(
+                inst.class.opcode,
+                Op::AccessChain
+                    | Op::InBoundsAccessChain
+                    | Op::UntypedAccessChainKHR
+                    | Op::UntypedInBoundsAccessChainKHR
+            ) || inst.operands.iter().all(|op| {
+                op.id_ref_any().is_none_or(|id| {
+                    var_maps_and_types
+                        .iter()
+                        .all(|(var_map, _)| !var_map.contains_key(&id))
                 })
+            })
         });
     }
 }
