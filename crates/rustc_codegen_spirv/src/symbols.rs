@@ -270,10 +270,8 @@ const EXECUTION_MODES: &[(&str, ExecutionMode, ExecutionModeExtraDim)] = {
         ("rounding_mode_rte", RoundingModeRTE, Value),
         ("rounding_mode_rtz", RoundingModeRTZ, Value),
         ("stencil_ref_replacing_ext", StencilRefReplacingEXT, None),
-        ("output_lines_nv", OutputLinesNV, None),
-        ("output_primitives_nv", OutputPrimitivesNV, Value),
-        ("derivative_group_quads_nv", DerivativeGroupQuadsNV, None),
-        ("output_triangles_nv", OutputTrianglesNV, None),
+        ("output_lines_ext", OutputLinesEXT, None),
+        ("derivative_group_quads", DerivativeGroupQuadsKHR, None),
         ("output_lines_ext", ExecutionMode::OutputLinesEXT, None),
         (
             "output_triangles_ext",

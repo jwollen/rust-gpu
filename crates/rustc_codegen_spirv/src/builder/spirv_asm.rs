@@ -1536,6 +1536,7 @@ impl<'cx, 'tcx> Builder<'cx, 'tcx> {
                     );
                 }
             },
+            _ => todo!(),
         }
         true
     }
@@ -1552,16 +1553,13 @@ pub const IMAGE_OPERANDS: &[(&str, ImageOperands)] = &[
     ("Sample", ImageOperands::SAMPLE),
     ("MinLod", ImageOperands::MIN_LOD),
     ("MakeTexelAvailable", ImageOperands::MAKE_TEXEL_AVAILABLE),
-    (
-        "MakeTexelAvailableKHR",
-        ImageOperands::MAKE_TEXEL_AVAILABLE_KHR,
-    ),
+    ("MakeTexelAvailableKHR", ImageOperands::MAKE_TEXEL_AVAILABLE),
     ("MakeTexelVisible", ImageOperands::MAKE_TEXEL_VISIBLE),
-    ("MakeTexelVisibleKHR", ImageOperands::MAKE_TEXEL_VISIBLE_KHR),
+    ("MakeTexelVisibleKHR", ImageOperands::MAKE_TEXEL_VISIBLE),
     ("NonPrivateTexel", ImageOperands::NON_PRIVATE_TEXEL),
-    ("NonPrivateTexelKHR", ImageOperands::NON_PRIVATE_TEXEL_KHR),
+    ("NonPrivateTexelKHR", ImageOperands::NON_PRIVATE_TEXEL),
     ("VolatileTexel", ImageOperands::VOLATILE_TEXEL),
-    ("VolatileTexelKHR", ImageOperands::VOLATILE_TEXEL_KHR),
+    ("VolatileTexelKHR", ImageOperands::VOLATILE_TEXEL),
     ("SignExtend", ImageOperands::SIGN_EXTEND),
     ("ZeroExtend", ImageOperands::ZERO_EXTEND),
 ];
@@ -1599,7 +1597,7 @@ pub const FUNCTION_CONTROL: &[(&str, FunctionControl)] = &[
 ];
 pub const MEMORY_SEMANTICS: &[(&str, MemorySemantics)] = &[
     ("Relaxed", MemorySemantics::RELAXED),
-    ("None", MemorySemantics::NONE),
+    ("None", MemorySemantics::RELAXED),
     ("Acquire", MemorySemantics::ACQUIRE),
     ("Release", MemorySemantics::RELEASE),
     ("AcquireRelease", MemorySemantics::ACQUIRE_RELEASE),
@@ -1620,11 +1618,11 @@ pub const MEMORY_SEMANTICS: &[(&str, MemorySemantics)] = &[
     ),
     ("ImageMemory", MemorySemantics::IMAGE_MEMORY),
     ("OutputMemory", MemorySemantics::OUTPUT_MEMORY),
-    ("OutputMemoryKHR", MemorySemantics::OUTPUT_MEMORY_KHR),
+    ("OutputMemoryKHR", MemorySemantics::OUTPUT_MEMORY),
     ("MakeAvailable", MemorySemantics::MAKE_AVAILABLE),
-    ("MakeAvailableKHR", MemorySemantics::MAKE_AVAILABLE_KHR),
+    ("MakeAvailableKHR", MemorySemantics::MAKE_AVAILABLE),
     ("MakeVisible", MemorySemantics::MAKE_VISIBLE),
-    ("MakeVisibleKHR", MemorySemantics::MAKE_VISIBLE_KHR),
+    ("MakeVisibleKHR", MemorySemantics::MAKE_VISIBLE),
     ("Volatile", MemorySemantics::VOLATILE),
 ];
 pub const MEMORY_ACCESS: &[(&str, MemoryAccess)] = &[
@@ -1635,18 +1633,12 @@ pub const MEMORY_ACCESS: &[(&str, MemoryAccess)] = &[
     ("MakePointerAvailable", MemoryAccess::MAKE_POINTER_AVAILABLE),
     (
         "MakePointerAvailableKHR",
-        MemoryAccess::MAKE_POINTER_AVAILABLE_KHR,
+        MemoryAccess::MAKE_POINTER_AVAILABLE,
     ),
     ("MakePointerVisible", MemoryAccess::MAKE_POINTER_VISIBLE),
-    (
-        "MakePointerVisibleKHR",
-        MemoryAccess::MAKE_POINTER_VISIBLE_KHR,
-    ),
+    ("MakePointerVisibleKHR", MemoryAccess::MAKE_POINTER_VISIBLE),
     ("NonPrivatePointer", MemoryAccess::NON_PRIVATE_POINTER),
-    (
-        "NonPrivatePointerKHR",
-        MemoryAccess::NON_PRIVATE_POINTER_KHR,
-    ),
+    ("NonPrivatePointerKHR", MemoryAccess::NON_PRIVATE_POINTER),
 ];
 pub const KERNEL_PROFILING_INFO: &[(&str, KernelProfilingInfo)] = &[
     ("None", KernelProfilingInfo::NONE),
